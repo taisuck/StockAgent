@@ -1,0 +1,32 @@
+# StockAgent 설정 예시.
+# 실제 키가 들어가는 config.yml 은 커밋하지 않는다(.gitignore 처리됨).
+#   cp config.example.yml config.yml
+
+kis:
+  # 실전투자: https://openapi.koreainvestment.com:9443
+  # 모의투자: https://openapivts.koreainvestment.com:29443
+  base_url: "https://openapi.koreainvestment.com:9443"
+  app_key: "발급받은-appkey"
+  app_secret: "발급받은-appsecret"
+  # 발급한 access token 보관 위치. 재시작 후에도 재사용해 재발급 호출 제한을 피한다.
+  token_cache_path: ".token_cache.json"
+  timeout: 10s
+
+push:
+  # VictoriaMetrics Prometheus import 엔드포인트
+  import_url: "http://localhost:8428/api/v1/import/prometheus"
+  timeout: 10s
+
+# 장 운영 시간. KST(Asia/Seoul) 기준으로 해석한다.
+market:
+  open: "09:00"
+  close: "15:30"
+
+collect:
+  interval: 30s
+  # name 은 metric label 로 그대로 쓰인다. 한 번 정하면 바꾸지 않는 것이 좋다.
+  symbols:
+    - code: "005930"
+      name: "samsung_electronics"
+    - code: "000660"
+      name: "sk_hynix"

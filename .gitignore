@@ -1,0 +1,9 @@
+# 실제 인증 정보가 담기는 설정 파일
+config.yml
+
+# 발급받은 access token 캐시
+.token_cache.json
+
+# 빌드 산출물
+/stockagent
+/stockagent.exe
