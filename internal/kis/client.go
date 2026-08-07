@@ -154,6 +154,12 @@ func (c *Client) loadCache() bool {
 	return true
 }
 
+// saveCache는 토큰을 파일에 보관한다. 실패해도 이번 실행에는 메모리 캐시가 있으므로
+// 에러를 올리지 않는다(다음 시작 때 재발급될 뿐이다).
+//
+// 같은 디렉터리에 임시 파일로 쓴 뒤 rename 한다. rename은 Windows와 Linux 모두에서
+// 기존 파일을 덮어쓰므로, 쓰는 중에 프로세스가 죽어도 캐시가 깨진 채 남지 않는다.
+// 깨진 캐시는 곧 불필요한 재발급이고, 재발급에는 호출 제한이 있다.
 func (c *Client) saveCache() {
 	if c.cachePath == "" {
 		return
@@ -162,11 +168,35 @@ func (c *Client) saveCache() {
 	if err != nil {
 		return
 	}
-	if dir := filepath.Dir(c.cachePath); dir != "" && dir != "." {
-		_ = os.MkdirAll(dir, 0o700)
+
+	dir := filepath.Dir(c.cachePath)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return
+		}
 	}
-	// 토큰은 자격증명이므로 소유자만 읽도록 둔다.
-	_ = os.WriteFile(c.cachePath, raw, 0o600)
+
+	// os.CreateTemp은 0600으로 만든다. 토큰은 자격증명이므로 소유자만 읽어야 한다.
+	// (파일 모드는 Linux에서만 의미가 있고, Windows에서는 디렉터리 ACL을 따른다.)
+	tmp, err := os.CreateTemp(dir, ".token_cache-*.tmp")
+	if err != nil {
+		return
+	}
+	tmpName := tmp.Name()
+	// rename이 성공하면 이 경로는 이미 사라진 뒤라 무해하다.
+	defer os.Remove(tmpName)
+
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		return
+	}
+
+	// Windows에서는 대상 파일을 다른 프로세스가 열고 있으면 rename이 실패할 수 있다.
+	// 그 경우에도 메모리 캐시로 이번 실행은 정상 동작한다.
+	_ = os.Rename(tmpName, c.cachePath)
 }
 
 // get은 인증 헤더를 붙여 GET 요청을 보내고 응답 본문을 돌려준다.

@@ -1,0 +1,6 @@
+# 저장소 안의 텍스트 파일은 항상 LF로 보관한다.
+# Windows와 Linux를 오갈 때 줄바꿈만 바뀐 diff가 생기지 않게 하려는 것이다.
+# Go 툴체인은 Windows에서도 LF 소스를 그대로 다룬다.
+* text=auto eol=lf
+
+*.exe binary

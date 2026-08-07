@@ -37,6 +37,14 @@ go test ./...              # 전체 테스트
 go test -run '^TestName$' ./path/to/pkg   # 단일 테스트 실행
 ```
 
+크로스 빌드(어느 OS에서든 상대 OS용 바이너리를 만들 수 있다. cgo를 쓰지 않는다):
+
+```sh
+GOOS=linux   GOARCH=amd64 go build -o dist/stockagent     ./app/stockagent
+GOOS=windows GOARCH=amd64 go build -o dist/stockagent.exe ./app/stockagent
+GOOS=linux go vet ./...    # 상대 OS 기준 정적 분석
+```
+
 ## 언어 및 대화 지침 (Language)
 
 - 모든 설명, 질문 답변, 커밋 메시지 작성 시 **한국어(Korean)**를 기본 언어로 사용한다.
@@ -101,6 +109,23 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
   `config.yml` 과 토큰 캐시(`.token_cache.json`)는 `.gitignore` 처리한다.
 - 발급한 access token은 `kis.token_cache_path` 파일에 보관해 재시작 후에도 재사용한다.
   재발급 호출 제한을 피하려는 것이므로, 이 캐시를 지우는 코드를 넣지 않는다.
+
+### 플랫폼 (Windows / Linux)
+
+개발은 Windows, 배포는 Linux처럼 두 OS를 오가는 것을 전제로 한다. OS별 분기 코드나
+빌드 태그는 두지 않고, 양쪽에서 같게 동작하는 방법을 택한다.
+
+- `go.mod` 의 go 지시문은 코드가 실제로 요구하는 최소 버전만 적는다. 패치 버전까지 박으면
+  다른 머신에서 툴체인을 강제로 내려받는다.
+- 시간 계산은 `time/tzdata` 내장으로 해결한다. 시스템 tzdata 설치 여부에 기대지 않는다.
+- 토큰 캐시는 임시 파일에 쓴 뒤 `os.Rename` 으로 교체한다. rename은 양쪽 OS 모두 기존 파일을
+  덮어쓰므로, 쓰다 중단돼도 캐시가 깨지지 않는다.
+- 파일 권한(`0600`)은 Linux에서만 의미가 있다. Windows는 모드를 무시하고 디렉터리 ACL을 따르므로,
+  토큰 캐시를 접근이 제한된 위치에 두는 것은 배포 시 판단할 문제다.
+- `SIGTERM` 은 Linux(systemd, `docker stop`)에서만 전달된다. Windows 콘솔에서는 Ctrl+C(`os.Interrupt`)만
+  온다. 둘 다 받아 정상 종료한다.
+- 설정 파일은 CRLF나 UTF-8 BOM이 섞여도 읽힌다(Windows 편집기 산출물). 회귀 테스트로 고정해 뒀다.
+- `.gitattributes` 로 저장소 안 텍스트 파일은 LF로 고정한다.
 
 ## 주의사항 & 금지 항목
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,6 +206,71 @@ func TestTokenLoadedFromFileCache(t *testing.T) {
 	}
 	if api.tokenCalls != 1 {
 		t.Errorf("토큰 발급 횟수 = %d, want 1 (파일 캐시를 재사용해야 한다)", api.tokenCalls)
+	}
+}
+
+// 캐시 파일이 깨져 있으면 무시하고 새로 발급받는다.
+func TestTokenRecoversFromCorruptedCache(t *testing.T) {
+	api := &fakeAPI{t: t}
+	srv := httptest.NewServer(api.handler())
+	t.Cleanup(srv.Close)
+
+	cachePath := filepath.Join(t.TempDir(), "token.json")
+	if err := os.WriteFile(cachePath, []byte(`{"access_to`), 0o600); err != nil {
+		t.Fatalf("깨진 캐시 작성 실패: %v", err)
+	}
+
+	token, err := New(srv.URL, "test-key", "test-secret", cachePath, 5*time.Second).Token(context.Background())
+	if err != nil {
+		t.Fatalf("Token 실패: %v", err)
+	}
+	if token != "test-token" {
+		t.Errorf("token = %q", token)
+	}
+	if api.tokenCalls != 1 {
+		t.Errorf("토큰 발급 횟수 = %d, want 1", api.tokenCalls)
+	}
+}
+
+// 캐시 파일은 rename으로 교체하므로 임시 파일이 남지 않아야 한다.
+func TestSaveCacheLeavesNoTempFile(t *testing.T) {
+	api := &fakeAPI{t: t}
+	srv := httptest.NewServer(api.handler())
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "token.json")
+
+	if _, err := New(srv.URL, "test-key", "test-secret", cachePath, 5*time.Second).Token(context.Background()); err != nil {
+		t.Fatalf("Token 실패: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("디렉터리 읽기 실패: %v", err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if len(names) != 1 || names[0] != "token.json" {
+		t.Errorf("디렉터리 내용 = %v, want [token.json]", names)
+	}
+}
+
+// 캐시 경로의 상위 디렉터리가 없으면 만들어야 한다.
+func TestSaveCacheCreatesParentDir(t *testing.T) {
+	api := &fakeAPI{t: t}
+	srv := httptest.NewServer(api.handler())
+	t.Cleanup(srv.Close)
+
+	cachePath := filepath.Join(t.TempDir(), "cache", "sub", "token.json")
+
+	if _, err := New(srv.URL, "test-key", "test-secret", cachePath, 5*time.Second).Token(context.Background()); err != nil {
+		t.Fatalf("Token 실패: %v", err)
+	}
+	if _, err := os.Stat(cachePath); err != nil {
+		t.Errorf("캐시 파일이 만들어지지 않았다: %v", err)
 	}
 }
 

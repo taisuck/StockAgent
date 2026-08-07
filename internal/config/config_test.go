@@ -137,6 +137,42 @@ func TestLoadValidationErrors(t *testing.T) {
 	}
 }
 
+// Windows 편집기가 저장한 설정 파일도 Linux에서 만든 것과 같게 읽혀야 한다.
+// 팀이 두 OS를 오갈 때 실제로 섞이는 조합이다.
+func TestLoadHandlesWindowsEncodings(t *testing.T) {
+	crlf := strings.ReplaceAll(fullConfig, "\n", "\r\n")
+	// U+FEFF. Windows 메모장 등이 UTF-8 파일 앞에 붙인다.
+	bom := string(rune(0xFEFF))
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"LF", fullConfig},
+		{"CRLF", crlf},
+		{"UTF-8 BOM + LF", bom + fullConfig},
+		{"UTF-8 BOM + CRLF", bom + crlf},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load(writeConfig(t, tc.body))
+			if err != nil {
+				t.Fatalf("Load 실패: %v", err)
+			}
+			if cfg.KIS.AppKey != "key" {
+				t.Errorf("app_key = %q, want %q", cfg.KIS.AppKey, "key")
+			}
+			if cfg.Collect.Interval != 45*time.Second {
+				t.Errorf("interval = %v, want 45s", cfg.Collect.Interval)
+			}
+			if len(cfg.Collect.Symbols) != 2 {
+				t.Errorf("symbols 개수 = %d, want 2", len(cfg.Collect.Symbols))
+			}
+		})
+	}
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "없는파일.yml")); err == nil {
 		t.Fatal("없는 파일인데 에러가 없다")
