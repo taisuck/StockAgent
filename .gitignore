@@ -7,3 +7,6 @@ config.yml
 # 빌드 산출물
 /stockagent
 /stockagent.exe
+logs/
+
+config.yml
