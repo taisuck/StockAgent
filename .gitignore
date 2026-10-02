@@ -8,5 +8,6 @@ config.yml
 /stockagent
 /stockagent.exe
 logs/
+output/
 
 config.yml

@@ -4,3 +4,6 @@
 * text=auto eol=lf
 
 *.exe binary
+
+# cmd.exe는 LF 줄바꿈의 배치 파일에서 레이블·goto 처리가 깨질 수 있어 CRLF로 둔다.
+*.bat text eol=crlf

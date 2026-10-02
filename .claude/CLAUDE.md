@@ -9,10 +9,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 모듈 및 구조
 
 - 모듈 경로: `github.com/taisuck/StockAgent` (저장소 루트에 단일 모듈)
-- 실행 바이너리는 `app/<name>` 에, 공용 패키지는 `internal/` 에 둔다.
+- 실행 바이너리는 `src/<name>` 에, 공용 패키지는 `internal/` 에 둔다.
 
 ```
-app/stockagent      수집 루프를 구성해 실행하는 main
+src/stockagent      수집 루프를 구성해 실행하는 main
 internal/config     YAML 설정 로드/검증
 internal/kis        KIS API 클라이언트 (토큰, 시세, 휴장일)
 internal/market     KST 장 운영 여부 판단 (Clock, HolidayCache, Gate)
@@ -28,7 +28,7 @@ internal/collector  수집 → 변환 → push 루프
 
 ```sh
 go build ./...             # 전체 빌드
-go run ./app/stockagent -config config.yml -log-level debug
+go run ./src/stockagent -config config.yml -log-level debug
 go vet ./...               # 정적 분석
 gofmt -l .                 # 포맷되지 않은 파일 목록 (출력이 비어 있으면 정상)
 gofmt -w .                 # 제자리에서 포맷 적용
@@ -40,9 +40,16 @@ go test -run '^TestName$' ./path/to/pkg   # 단일 테스트 실행
 크로스 빌드(어느 OS에서든 상대 OS용 바이너리를 만들 수 있다. cgo를 쓰지 않는다):
 
 ```sh
-GOOS=linux   GOARCH=amd64 go build -o dist/stockagent     ./app/stockagent
-GOOS=windows GOARCH=amd64 go build -o dist/stockagent.exe ./app/stockagent
+GOOS=linux   GOARCH=amd64 go build -o dist/stockagent     ./src/stockagent
+GOOS=windows GOARCH=amd64 go build -o dist/stockagent.exe ./src/stockagent
 GOOS=linux go vet ./...    # 상대 OS 기준 정적 분석
+```
+
+같은 빌드를 `scripts/` 의 스크립트로도 할 수 있다. 산출물은 `output/` 에 생긴다(`.gitignore` 처리).
+
+```sh
+scripts/build_linux.sh     scripts/build_windows.sh     # Linux 셸에서
+scripts\build_linux.bat    scripts\build_windows.bat    # Windows cmd에서
 ```
 
 ## 언어 및 대화 지침 (Language)
