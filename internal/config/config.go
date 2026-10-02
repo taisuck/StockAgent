@@ -21,6 +21,7 @@ type Config struct {
 	Push    Push    `yaml:"push"`
 	Market  Market  `yaml:"market"`
 	Collect Collect `yaml:"collect"`
+	Log     Log     `yaml:"log"`
 }
 
 // KIS는 한국투자증권 Open API 접속 정보다.
@@ -59,6 +60,14 @@ type Collect struct {
 type Symbol struct {
 	Code string `yaml:"code"`
 	Name string `yaml:"name"`
+}
+
+// Log는 로그 출력 설정이다. 표준 출력과 함께 Dir 아래 날짜별 파일에도 남긴다.
+type Log struct {
+	// Level은 debug, info, warn(warning), error 중 하나다.
+	Level string `yaml:"level"`
+	// Dir은 날짜별 로그 파일(stockagent-YYYY-MM-DD.log)을 둘 디렉터리다.
+	Dir string `yaml:"dir"`
 }
 
 // Load는 path의 YAML을 읽어 기본값을 채우고 검증한다.
@@ -101,6 +110,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Collect.Interval <= 0 {
 		c.Collect.Interval = 30 * time.Second
+	}
+	if c.Log.Level == "" {
+		c.Log.Level = "info"
+	}
+	if c.Log.Dir == "" {
+		c.Log.Dir = "logs"
 	}
 }
 

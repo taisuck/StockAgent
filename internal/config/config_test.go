@@ -94,6 +94,9 @@ collect:
 	if cfg.KIS.TokenCachePath == "" {
 		t.Error("token_cache_path 기본값이 비어 있다")
 	}
+	if cfg.Log.Level != "info" || cfg.Log.Dir != "logs" {
+		t.Errorf("log 기본값 = level %q, dir %q", cfg.Log.Level, cfg.Log.Dir)
+	}
 }
 
 func TestLoadValidationErrors(t *testing.T) {

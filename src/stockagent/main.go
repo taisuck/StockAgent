@@ -6,22 +6,24 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
+	"time"
 
 	"github.com/taisuck/StockAgent/internal/collector"
 	"github.com/taisuck/StockAgent/internal/config"
 	"github.com/taisuck/StockAgent/internal/kis"
+	"github.com/taisuck/StockAgent/internal/logging"
 	"github.com/taisuck/StockAgent/internal/market"
 	"github.com/taisuck/StockAgent/internal/vmpush"
 )
 
 func main() {
 	configPath := flag.String("config", "config.yml", "설정 파일 경로")
-	logLevel := flag.String("log-level", "info", "로그 레벨 (debug|info|warn|error)")
+	logLevel := flag.String("log-level", "", "로그 레벨 (debug|info|warn|error). 비우면 설정 파일의 log.level")
 	flag.Parse()
 
 	if err := run(*configPath, *logLevel); err != nil {
@@ -31,16 +33,38 @@ func main() {
 }
 
 func run(configPath, logLevel string) error {
-	level, err := parseLevel(logLevel)
-	if err != nil {
-		return err
-	}
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
-
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
+
+	if logLevel == "" {
+		logLevel = cfg.Log.Level
+	}
+	level, err := logging.ParseLevel(logLevel)
+	if err != nil {
+		return err
+	}
+	loc, err := time.LoadLocation(market.TimeZone)
+	if err != nil {
+		return fmt.Errorf("타임존 %s 로드 실패: %w", market.TimeZone, err)
+	}
+	logFile, err := logging.NewDailyFile(cfg.Log.Dir, "stockagent", loc)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+	// 표준 출력과 날짜별 파일에 같은 내용을 남긴다.
+	// 파일 날짜와 어긋나지 않도록 레코드 시각도 KST로 찍는다.
+	log := slog.New(slog.NewTextHandler(io.MultiWriter(os.Stdout, logFile), &slog.HandlerOptions{
+		Level: level,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey && len(groups) == 0 {
+				a.Value = slog.TimeValue(a.Value.Time().In(loc))
+			}
+			return a
+		},
+	}))
 
 	clock, err := market.NewClock(cfg.Market.Open, cfg.Market.Close)
 	if err != nil {
@@ -69,19 +93,4 @@ func run(configPath, logLevel string) error {
 
 	log.Info("StockAgent 종료")
 	return nil
-}
-
-func parseLevel(s string) (slog.Level, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "debug":
-		return slog.LevelDebug, nil
-	case "info":
-		return slog.LevelInfo, nil
-	case "warn":
-		return slog.LevelWarn, nil
-	case "error":
-		return slog.LevelError, nil
-	default:
-		return 0, fmt.Errorf("알 수 없는 로그 레벨: %q", s)
-	}
 }

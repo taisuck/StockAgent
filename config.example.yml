@@ -30,3 +30,9 @@ collect:
       name: "samsung_electronics"
     - code: "000660"
       name: "sk_hynix"
+
+log:
+  # debug | info | warn | error. 실행 시 -log-level 플래그를 주면 그 값이 우선한다.
+  level: info
+  # 날짜(KST)별 로그 파일 stockagent-YYYY-MM-DD.log 를 이 디렉터리에 남긴다.
+  dir: "logs"

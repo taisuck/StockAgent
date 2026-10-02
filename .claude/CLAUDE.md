@@ -18,6 +18,7 @@ internal/kis        KIS API 클라이언트 (토큰, 시세, 휴장일)
 internal/market     KST 장 운영 여부 판단 (Clock, HolidayCache, Gate)
 internal/metric     Prometheus exposition 포맷 변환
 internal/vmpush     VictoriaMetrics push
+internal/logging    로그 레벨 파싱, KST 날짜별 로그 파일
 internal/collector  수집 → 변환 → push 루프
 ```
 
@@ -108,6 +109,12 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
 - 종목 하나의 시세 조회가 실패해도 나머지 종목은 그대로 push한다.
 - push가 실패하면 로그만 남기고 다음 주기로 넘어간다.
 - 수집할 샘플이 하나도 없으면 빈 본문을 전송하지 않는다.
+
+### 로그
+
+- 표준 출력과 `log.dir`(기본 `logs/`) 아래 `stockagent-YYYY-MM-DD.log` 에 같은 내용을 남긴다.
+  날짜와 레코드 시각은 KST 기준이며, 자정이 지나면 다음 기록부터 새 파일로 넘어간다.
+- 레벨은 debug / info / warn(warning) / error. `-log-level` 플래그가 config의 `log.level` 보다 우선한다.
 
 ### 설정 파일
 
