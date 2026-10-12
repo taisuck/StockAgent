@@ -202,21 +202,59 @@ func TestTickSurvivesPushError(t *testing.T) {
 	}
 }
 
-// 종목 목록은 주기마다 다시 읽고, 조회가 실패하면 마지막 목록으로 수집한다.
-func TestTickUsesLastSymbolsWhenSourceFails(t *testing.T) {
+// 종목 목록은 장 중에는 다시 읽지 않고, 장외 → 장중으로 바뀔 때(장 시작) 다시 읽는다.
+func TestSymbolsReloadAtSessionOpen(t *testing.T) {
 	quotes := &fakeQuotes{quotes: map[string]kis.Quote{
 		"005930": fullQuote("005930", 71000),
 		"000660": fullQuote("000660", 180000),
 	}}
 	pusher := &fakePusher{}
 	symbols := &fakeSymbols{symbols: []config.Symbol{samsung}}
-	c := New(symbols, time.Minute, quotes, pusher, &fakeGate{ok: true}, discardLogger())
+	gate := &fakeGate{ok: true}
+	c := New(symbols, time.Minute, quotes, pusher, gate, discardLogger())
+
+	c.tick(context.Background()) // 프로그램 시작 후 첫 주기: 읽는다
+	symbols.symbols = []config.Symbol{samsung, hynix}
+	c.tick(context.Background()) // 장 중: 다시 읽지 않는다
+	gate.ok = false
+	c.tick(context.Background()) // 장외
+	gate.ok = true
+	c.tick(context.Background()) // 장 시작: 다시 읽는다
+
+	if symbols.calls != 2 {
+		t.Errorf("종목 목록 조회 횟수 = %d, want 2", symbols.calls)
+	}
+	if len(pusher.bodies) != 3 {
+		t.Fatalf("push 횟수 = %d, want 3", len(pusher.bodies))
+	}
+	if strings.Contains(pusher.bodies[1], `name="sk_hynix"`) {
+		t.Error("장 중에 바꾼 목록이 바로 반영되었다")
+	}
+	if !strings.Contains(pusher.bodies[2], `name="sk_hynix"`) {
+		t.Error("장 시작에 다시 읽은 목록이 반영되지 않았다")
+	}
+}
+
+// 장 시작 때 다시 읽기가 실패하면 이전 목록으로 수집하고, 다음 주기에 다시 시도한다.
+func TestSymbolsReloadRetriesAfterFailure(t *testing.T) {
+	quotes := &fakeQuotes{quotes: map[string]kis.Quote{
+		"005930": fullQuote("005930", 71000),
+		"000660": fullQuote("000660", 180000),
+	}}
+	pusher := &fakePusher{}
+	symbols := &fakeSymbols{symbols: []config.Symbol{samsung}}
+	gate := &fakeGate{ok: true}
+	c := New(symbols, time.Minute, quotes, pusher, gate, discardLogger())
 
 	c.tick(context.Background())
-	symbols.symbols = []config.Symbol{samsung, hynix}
+	gate.ok = false
 	c.tick(context.Background())
+	gate.ok = true
 	symbols.err = errors.New("MongoDB 연결 끊김")
-	c.tick(context.Background())
+	c.tick(context.Background()) // 장 시작, 읽기 실패 → 이전 목록
+	symbols.err = nil
+	symbols.symbols = []config.Symbol{samsung, hynix}
+	c.tick(context.Background()) // 재시도 성공
 
 	if symbols.calls != 3 {
 		t.Errorf("종목 목록 조회 횟수 = %d, want 3", symbols.calls)
@@ -224,13 +262,30 @@ func TestTickUsesLastSymbolsWhenSourceFails(t *testing.T) {
 	if len(pusher.bodies) != 3 {
 		t.Fatalf("push 횟수 = %d, want 3", len(pusher.bodies))
 	}
-	if strings.Contains(pusher.bodies[0], `name="sk_hynix"`) {
-		t.Error("목록에 없던 종목이 첫 주기에 push되었다")
+	if !strings.Contains(pusher.bodies[1], `name="samsung_electronics"`) {
+		t.Error("읽기 실패 시 이전 목록으로 수집하지 않았다")
 	}
-	for i, body := range pusher.bodies[1:] {
-		if !strings.Contains(body, `name="sk_hynix"`) {
-			t.Errorf("%d번째 주기에 갱신된 목록이 반영되지 않았다", i+2)
-		}
+	if !strings.Contains(pusher.bodies[2], `name="sk_hynix"`) {
+		t.Error("재시도로 읽은 목록이 반영되지 않았다")
+	}
+}
+
+// 장외 시간에 시작해도 시작 시점에 목록을 읽는다.
+func TestRunLoadsSymbolsAtStartOutsideHours(t *testing.T) {
+	symbols := &fakeSymbols{symbols: []config.Symbol{samsung}}
+	c := New(symbols, time.Hour, &fakeQuotes{}, &fakePusher{}, &fakeGate{ok: false}, discardLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := c.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+
+	if symbols.calls != 1 {
+		t.Errorf("종목 목록 조회 횟수 = %d, want 1", symbols.calls)
+	}
+	if len(c.lastSymbols) != 1 {
+		t.Errorf("읽은 종목 수 = %d, want 1", len(c.lastSymbols))
 	}
 }
 

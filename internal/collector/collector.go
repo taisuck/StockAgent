@@ -51,20 +51,28 @@ type Collector struct {
 	gate     Gate
 	log      *slog.Logger
 
-	// lastSymbols는 마지막으로 읽어 온 종목 목록이다. 목록 조회가 실패하면 이것으로 수집한다.
+	// lastSymbols는 마지막으로 읽어 온 종목 목록이다. 다시 읽기가 실패하면 이것으로 수집한다.
 	lastSymbols []config.Symbol
+	// reloadReason이 비어 있지 않으면 다음 장중 주기에 종목 목록을 다시 읽는다.
+	// 읽기가 성공할 때까지 유지되므로, 실패하면 다음 주기에 다시 시도한다.
+	reloadReason string
+	// wasOpen은 직전 주기의 장 운영 여부다. 장외 → 장중으로 바뀌면 장 시작으로 본다.
+	wasOpen bool
 }
 
-// New는 Collector를 만든다. 종목 목록은 주기마다 symbols에서 다시 읽으므로
-// 대상 종목을 바꿔도 재시작하지 않아도 된다.
+// New는 Collector를 만든다. 종목 목록은 프로그램 시작 시와 매일 장 시작 시에
+// symbols에서 다시 읽는다. 장 중에 바꾼 목록은 다음 장 시작부터 반영된다.
 func New(symbols SymbolSource, interval time.Duration, quotes QuoteSource, pusher Pusher, gate Gate, log *slog.Logger) *Collector {
 	return &Collector{
-		symbols:  symbols,
-		interval: interval,
-		quotes:   quotes,
-		pusher:   pusher,
-		gate:     gate,
-		log:      log,
+		symbols:      symbols,
+		interval:     interval,
+		quotes:       quotes,
+		pusher:       pusher,
+		gate:         gate,
+		log:          log,
+		reloadReason: "프로그램 시작",
+		// 시작 시점에 이미 읽으므로, 장중에 시작했을 때 첫 주기를 장 시작으로 보지 않는다.
+		wasOpen: true,
 	}
 }
 
@@ -72,6 +80,9 @@ func New(symbols SymbolSource, interval time.Duration, quotes QuoteSource, pushe
 func (c *Collector) Run(ctx context.Context) error {
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
+
+	// 장외 시간에 시작해도 목록을 읽어 몇 종목을 수집할지 바로 드러낸다.
+	c.reloadSymbols(ctx)
 
 	// 첫 주기를 기다리지 않고 즉시 한 번 수집한다.
 	c.tick(ctx)
@@ -90,12 +101,17 @@ func (c *Collector) Run(ctx context.Context) error {
 // 개별 실패는 로그만 남기고 루프를 계속한다. 다음 주기에 다시 시도하면 되기 때문이다.
 func (c *Collector) tick(ctx context.Context) {
 	ok, reason := c.gate.ShouldCollect(ctx)
+	if ok && !c.wasOpen {
+		c.reloadReason = "장 시작"
+	}
+	c.wasOpen = ok
 	if !ok {
 		c.log.Debug("수집 건너뜀", "이유", reason)
 		return
 	}
 
-	symbols := c.loadSymbols(ctx)
+	c.reloadSymbols(ctx)
+	symbols := c.lastSymbols
 	if len(symbols) == 0 {
 		c.log.Warn("수집 대상 종목이 없다")
 		return
@@ -116,17 +132,25 @@ func (c *Collector) tick(ctx context.Context) {
 	}
 }
 
-// loadSymbols는 종목 목록을 읽는다. 실패하면 마지막으로 읽은 목록을 그대로 쓴다.
-func (c *Collector) loadSymbols(ctx context.Context) []config.Symbol {
+// reloadSymbols는 다시 읽을 때가 됐으면(reloadReason) 종목 목록을 읽는다.
+// 실패하면 마지막으로 읽은 목록을 그대로 두고 다음 주기에 다시 시도한다.
+func (c *Collector) reloadSymbols(ctx context.Context) {
+	if c.reloadReason == "" {
+		return
+	}
+
 	symbols, err := c.symbols.Symbols(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
-			c.log.Error("종목 목록 조회 실패, 이전 목록으로 수집", "symbols", len(c.lastSymbols), "err", err)
+			c.log.Error("주목 종목 로딩 실패, 이전 목록으로 수집",
+				"계기", c.reloadReason, "symbols", len(c.lastSymbols), "err", err)
 		}
-		return c.lastSymbols
+		return
 	}
+
+	c.log.Info("주목 종목 로딩", "계기", c.reloadReason, "symbols", len(symbols))
 	c.lastSymbols = symbols
-	return symbols
+	c.reloadReason = ""
 }
 
 // collect는 모든 종목을 순차 조회한다. KIS API 호출 유량 제한을 고려해 병렬로 보내지 않는다.

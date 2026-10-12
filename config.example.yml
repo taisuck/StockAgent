@@ -31,7 +31,7 @@ collect:
 
 # 수집 대상 종목은 이 DB의 corporation 컬렉션에서 읽는다(문서의 code, name 필드).
 # name 은 metric label 로 그대로 쓰인다. 한 번 정하면 바꾸지 않는 것이 좋다.
-# 목록은 수집 주기마다 다시 읽으므로 종목을 추가·삭제해도 재시작할 필요가 없다.
+# 목록은 프로그램 시작 시와 매일 장 시작 시에 다시 읽는다. 장 중에 바꾸면 다음 장 시작부터 반영된다.
 mongo:
   # 예: mongodb://localhost:27017 (authSource 등 옵션은 URI 쿼리로 지정)
   uri: "mongodb://localhost:27017"
