@@ -22,6 +22,11 @@ const (
 	metricChangeRate = "kr_stock_change_rate"
 )
 
+// SymbolSource는 수집 대상 종목 목록을 돌려준다.
+type SymbolSource interface {
+	Symbols(ctx context.Context) ([]config.Symbol, error)
+}
+
 // QuoteSource는 종목 현재가를 조회한다.
 type QuoteSource interface {
 	Quote(ctx context.Context, code string) (kis.Quote, error)
@@ -39,16 +44,20 @@ type Gate interface {
 
 // Collector는 설정된 주기로 시세를 수집해 push한다.
 type Collector struct {
-	symbols  []config.Symbol
+	symbols  SymbolSource
 	interval time.Duration
 	quotes   QuoteSource
 	pusher   Pusher
 	gate     Gate
 	log      *slog.Logger
+
+	// lastSymbols는 마지막으로 읽어 온 종목 목록이다. 목록 조회가 실패하면 이것으로 수집한다.
+	lastSymbols []config.Symbol
 }
 
-// New는 Collector를 만든다.
-func New(symbols []config.Symbol, interval time.Duration, quotes QuoteSource, pusher Pusher, gate Gate, log *slog.Logger) *Collector {
+// New는 Collector를 만든다. 종목 목록은 주기마다 symbols에서 다시 읽으므로
+// 대상 종목을 바꿔도 재시작하지 않아도 된다.
+func New(symbols SymbolSource, interval time.Duration, quotes QuoteSource, pusher Pusher, gate Gate, log *slog.Logger) *Collector {
 	return &Collector{
 		symbols:  symbols,
 		interval: interval,
@@ -86,7 +95,13 @@ func (c *Collector) tick(ctx context.Context) {
 		return
 	}
 
-	samples := c.collect(ctx)
+	symbols := c.loadSymbols(ctx)
+	if len(symbols) == 0 {
+		c.log.Warn("수집 대상 종목이 없다")
+		return
+	}
+
+	samples := c.collect(ctx, symbols)
 	if len(samples) == 0 {
 		c.log.Warn("push할 샘플이 없다")
 		return
@@ -101,11 +116,24 @@ func (c *Collector) tick(ctx context.Context) {
 	}
 }
 
-// collect는 모든 종목을 순차 조회한다. KIS API 호출 유량 제한을 고려해 병렬로 보내지 않는다.
-func (c *Collector) collect(ctx context.Context) []metric.Sample {
-	samples := make([]metric.Sample, 0, len(c.symbols)*6)
+// loadSymbols는 종목 목록을 읽는다. 실패하면 마지막으로 읽은 목록을 그대로 쓴다.
+func (c *Collector) loadSymbols(ctx context.Context) []config.Symbol {
+	symbols, err := c.symbols.Symbols(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			c.log.Error("종목 목록 조회 실패, 이전 목록으로 수집", "symbols", len(c.lastSymbols), "err", err)
+		}
+		return c.lastSymbols
+	}
+	c.lastSymbols = symbols
+	return symbols
+}
 
-	for _, sym := range c.symbols {
+// collect는 모든 종목을 순차 조회한다. KIS API 호출 유량 제한을 고려해 병렬로 보내지 않는다.
+func (c *Collector) collect(ctx context.Context, symbols []config.Symbol) []metric.Sample {
+	samples := make([]metric.Sample, 0, len(symbols)*6)
+
+	for _, sym := range symbols {
 		if ctx.Err() != nil {
 			return samples
 		}

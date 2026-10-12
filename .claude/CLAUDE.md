@@ -19,11 +19,12 @@ internal/market     KST 장 운영 여부 판단 (Clock, HolidayCache, Gate)
 internal/metric     Prometheus exposition 포맷 변환
 internal/vmpush     VictoriaMetrics push
 internal/logging    로그 레벨 파싱, KST 날짜별 로그 파일
+internal/mongodb    MongoDB 연결, corporation 컬렉션에서 수집 대상 종목 조회
 internal/collector  수집 → 변환 → push 루프
 ```
 
 의존 방향은 `collector` → (`kis`, `metric`, `config`) 한 방향이다. `collector`는 구체 타입 대신
-`QuoteSource`/`Pusher`/`Gate` 인터페이스를 받으므로, 테스트에서 KIS나 VictoriaMetrics 없이 검증한다.
+`SymbolSource`/`QuoteSource`/`Pusher`/`Gate` 인터페이스를 받으므로, 테스트에서 KIS나 VictoriaMetrics 없이 검증한다.
 
 ## 주요 명령어
 
@@ -66,7 +67,11 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
 ### 시세 수집 (한국투자증권 KIS Open API)
 
 - 국내 주식 시세는 한국투자증권 REST API로 수집한다.
-- 수집 대상: 삼성전자(`005930`), SK하이닉스(`000660`).
+- 수집 대상: MongoDB `mongo.database` 의 `corporation` 컬렉션 문서(`code`, `name` 필드).
+  - 목록은 수집 주기마다 다시 읽어, 종목을 추가·삭제해도 재시작하지 않는다(장외 시간에는 읽지 않는다).
+  - 조회가 실패하면 마지막으로 읽은 목록으로 수집한다. code나 name이 빈 문서는 건너뛴다.
+  - MongoDB 접속·인증은 시작 시 ping으로 확인하고, 실패하면 시작하지 않는다.
+  - `mongo.username`/`mongo.password` 가 있으면 URI의 인증 정보 대신 쓴다(authSource 등 URI 옵션은 유지).
 - 인증은 `appkey`/`appsecret`으로 access token을 발급받아 `Bearer` 헤더로 사용한다.
   토큰 재발급에는 호출 제한이 있으므로 **발급한 토큰은 만료 전까지 캐싱해 재사용**한다.
 - 요청마다 조회 종류를 지정하는 `tr_id` 헤더가 필요하고, 실전투자와 모의투자는 도메인이 다르다.
@@ -121,7 +126,7 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
 
 ### 설정 파일
 
-- 형식은 YAML. 인증 정보(appkey/appsecret), push 대상, 수집 대상 종목을 여기에 둔다.
+- 형식은 YAML. 인증 정보(appkey/appsecret), push 대상, MongoDB 접속 정보를 여기에 둔다.
 - 실제 키가 담기는 파일이므로 저장소에 커밋하지 않는다. `config.example.yml` 만 두고
   `config.yml` 과 토큰 캐시(`.token_cache.json`)는 `.gitignore` 처리한다.
 - 발급한 access token은 `kis.token_cache_path` 파일에 보관해 재시작 후에도 재사용한다.

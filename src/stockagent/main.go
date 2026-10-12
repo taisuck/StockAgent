@@ -18,6 +18,7 @@ import (
 	"github.com/taisuck/StockAgent/internal/kis"
 	"github.com/taisuck/StockAgent/internal/logging"
 	"github.com/taisuck/StockAgent/internal/market"
+	"github.com/taisuck/StockAgent/internal/mongodb"
 	"github.com/taisuck/StockAgent/internal/vmpush"
 )
 
@@ -82,15 +83,22 @@ func run(configPath, logLevel string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// 접속·인증 설정이 잘못됐다면 수집 루프를 돌기 전에 드러나도록 시작 시점에 확인한다.
+	store, err := mongodb.Connect(ctx, cfg.Mongo, log)
+	if err != nil {
+		return err
+	}
+	defer store.Close(context.Background())
+
 	log.Info("StockAgent 시작",
-		"symbols", len(cfg.Collect.Symbols),
+		"mongo_db", cfg.Mongo.Database,
 		"interval", cfg.Collect.Interval,
 		"session", cfg.Market.Open+"~"+cfg.Market.Close+" KST",
 		"push", cfg.Push.ImportURL,
 		"push_auth", cfg.Push.Username != "",
 	)
 
-	c := collector.New(cfg.Collect.Symbols, cfg.Collect.Interval, kisClient, pusher, gate, log)
+	c := collector.New(store, cfg.Collect.Interval, kisClient, pusher, gate, log)
 	if err := c.Run(ctx); err != nil {
 		return err
 	}
