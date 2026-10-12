@@ -99,3 +99,35 @@ func TestPushReportsUnreachableServer(t *testing.T) {
 		t.Fatal("연결 실패인데 에러가 없다")
 	}
 }
+
+func TestPushBasicAuth(t *testing.T) {
+	var user, pass string
+	var ok bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok = r.BasicAuth()
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, 5*time.Second).WithBasicAuth("vm", "s3cret")
+	if err := c.Push(context.Background(), "up 1 0\n"); err != nil {
+		t.Fatalf("Push 실패: %v", err)
+	}
+	if !ok || user != "vm" || pass != "s3cret" {
+		t.Errorf("basic auth = (%q, %q, %v), want (vm, s3cret, true)", user, pass, ok)
+	}
+}
+
+func TestPushWithoutAuthSendsNoHeader(t *testing.T) {
+	var header string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header = r.Header.Get("Authorization")
+	}))
+	defer srv.Close()
+
+	if err := New(srv.URL, 5*time.Second).Push(context.Background(), "up 1 0\n"); err != nil {
+		t.Fatalf("Push 실패: %v", err)
+	}
+	if header != "" {
+		t.Errorf("인증 설정 없이 Authorization 헤더를 보냈다: %q", header)
+	}
+}

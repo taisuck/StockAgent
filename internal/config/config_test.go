@@ -116,6 +116,11 @@ func TestLoadValidationErrors(t *testing.T) {
 			want: "push.import_url",
 		},
 		{
+			name: "push password 누락",
+			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\n  username: vm\ncollect:\n  symbols:\n    - code: c\n      name: n\n",
+			want: "push.password",
+		},
+		{
 			name: "종목 없음",
 			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\n",
 			want: "collect.symbols",

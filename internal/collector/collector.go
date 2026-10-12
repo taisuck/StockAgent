@@ -98,9 +98,7 @@ func (c *Collector) tick(ctx context.Context) {
 			return
 		}
 		c.log.Error("push 실패", "err", err)
-		return
 	}
-	c.log.Info("push 완료", "samples", len(samples), "symbols", len(c.symbols))
 }
 
 // collect는 모든 종목을 순차 조회한다. KIS API 호출 유량 제한을 고려해 병렬로 보내지 않는다.

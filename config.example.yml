@@ -16,6 +16,10 @@ push:
   # VictoriaMetrics Prometheus import 엔드포인트
   import_url: "http://localhost:8428/api/v1/import/prometheus"
   timeout: 10s
+  # VictoriaMetrics 를 -httpAuth.username / -httpAuth.password 로 띄웠다면 같은 값을 넣는다.
+  # 둘 다 비워 두면 인증 없이 보낸다.
+  # username: "vm-user"
+  # password: "vm-password"
 
 # 장 운영 시간. KST(Asia/Seoul) 기준으로 해석한다.
 market:
