@@ -74,6 +74,9 @@ func run(configPath, logLevel string) error {
 	kisClient := kis.New(cfg.KIS.BaseURL, cfg.KIS.AppKey, cfg.KIS.AppSecret, cfg.KIS.TokenCachePath, cfg.KIS.Timeout)
 	gate := market.NewGate(clock, market.NewHolidayCache(kisClient, log))
 	pusher := vmpush.New(cfg.Push.ImportURL, cfg.Push.Timeout)
+	if cfg.Push.Username != "" {
+		pusher.WithBasicAuth(cfg.Push.Username, cfg.Push.Password)
+	}
 
 	// SIGINT/SIGTERM을 받으면 진행 중인 주기를 끝내고 종료한다.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -84,6 +87,7 @@ func run(configPath, logLevel string) error {
 		"interval", cfg.Collect.Interval,
 		"session", cfg.Market.Open+"~"+cfg.Market.Close+" KST",
 		"push", cfg.Push.ImportURL,
+		"push_auth", cfg.Push.Username != "",
 	)
 
 	c := collector.New(cfg.Collect.Symbols, cfg.Collect.Interval, kisClient, pusher, gate, log)

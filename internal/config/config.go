@@ -41,6 +41,10 @@ type Push struct {
 	// 예: http://localhost:8428/api/v1/import/prometheus
 	ImportURL string        `yaml:"import_url"`
 	Timeout   time.Duration `yaml:"timeout"`
+	// Username/Password는 VictoriaMetrics -httpAuth.* 로 건 HTTP Basic 인증 정보다.
+	// 둘 다 비어 있으면 인증 없이 보낸다.
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 // Market은 장 운영 시간이다. 시각은 KST(Asia/Seoul) 기준으로 해석한다.
@@ -128,6 +132,9 @@ func (c *Config) validate() error {
 	}
 	if c.Push.ImportURL == "" {
 		return fmt.Errorf("push.import_url 가 비어 있다")
+	}
+	if (c.Push.Username == "") != (c.Push.Password == "") {
+		return fmt.Errorf("push.username 과 push.password 는 함께 설정해야 한다")
 	}
 	if len(c.Collect.Symbols) == 0 {
 		return fmt.Errorf("collect.symbols 가 비어 있다")

@@ -77,6 +77,8 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
 - Prometheus import 엔드포인트(`/api/v1/import/prometheus`)로 Prometheus exposition
   포맷 텍스트를 POST 한다.
 - push 대상(VictoriaMetrics 주소)은 config 파일에 명시한다.
+- `push.username` / `push.password` 가 있으면 HTTP Basic 인증을 붙인다(VictoriaMetrics `-httpAuth.*`).
+  둘 다 비우면 인증 없이 보내고, 하나만 있으면 설정 오류로 시작하지 않는다.
 - metric 이름과 label은 `internal/collector` 의 상수로 고정돼 있다. **한 번 push하면 시계열 이름이
   굳으므로 바꾸지 않는다.**
 
@@ -115,6 +117,7 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
 - 표준 출력과 `log.dir`(기본 `logs/`) 아래 `stockagent-YYYY-MM-DD.log` 에 같은 내용을 남긴다.
   날짜와 레코드 시각은 KST 기준이며, 자정이 지나면 다음 기록부터 새 파일로 넘어간다.
 - 레벨은 debug / info / warn(warning) / error. `-log-level` 플래그가 config의 `log.level` 보다 우선한다.
+- 정상 처리(주기마다의 수집·push 성공)는 로그를 남기지 않는다. 실패·이상 상황과 시작/종료만 기록한다.
 
 ### 설정 파일
 
