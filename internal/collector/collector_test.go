@@ -35,6 +35,21 @@ func (f *fakeQuotes) Quote(_ context.Context, code string) (kis.Quote, error) {
 	return q, nil
 }
 
+// fakeSymbols는 고정 목록을 돌려준다. err가 있으면 그것을 돌려준다.
+type fakeSymbols struct {
+	symbols []config.Symbol
+	err     error
+	calls   int
+}
+
+func (f *fakeSymbols) Symbols(context.Context) ([]config.Symbol, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.symbols, nil
+}
+
 type fakePusher struct {
 	bodies []string
 	err    error
@@ -82,7 +97,7 @@ func fullQuote(code string, price float64) kis.Quote {
 }
 
 func newTestCollector(quotes *fakeQuotes, pusher *fakePusher, gate *fakeGate, symbols ...config.Symbol) *Collector {
-	return New(symbols, time.Minute, quotes, pusher, gate, discardLogger())
+	return New(&fakeSymbols{symbols: symbols}, time.Minute, quotes, pusher, gate, discardLogger())
 }
 
 func TestTickPushesAllMetrics(t *testing.T) {
@@ -187,6 +202,106 @@ func TestTickSurvivesPushError(t *testing.T) {
 	}
 }
 
+// 종목 목록은 장 중에는 다시 읽지 않고, 장외 → 장중으로 바뀔 때(장 시작) 다시 읽는다.
+func TestSymbolsReloadAtSessionOpen(t *testing.T) {
+	quotes := &fakeQuotes{quotes: map[string]kis.Quote{
+		"005930": fullQuote("005930", 71000),
+		"000660": fullQuote("000660", 180000),
+	}}
+	pusher := &fakePusher{}
+	symbols := &fakeSymbols{symbols: []config.Symbol{samsung}}
+	gate := &fakeGate{ok: true}
+	c := New(symbols, time.Minute, quotes, pusher, gate, discardLogger())
+
+	c.tick(context.Background()) // 프로그램 시작 후 첫 주기: 읽는다
+	symbols.symbols = []config.Symbol{samsung, hynix}
+	c.tick(context.Background()) // 장 중: 다시 읽지 않는다
+	gate.ok = false
+	c.tick(context.Background()) // 장외
+	gate.ok = true
+	c.tick(context.Background()) // 장 시작: 다시 읽는다
+
+	if symbols.calls != 2 {
+		t.Errorf("종목 목록 조회 횟수 = %d, want 2", symbols.calls)
+	}
+	if len(pusher.bodies) != 3 {
+		t.Fatalf("push 횟수 = %d, want 3", len(pusher.bodies))
+	}
+	if strings.Contains(pusher.bodies[1], `name="sk_hynix"`) {
+		t.Error("장 중에 바꾼 목록이 바로 반영되었다")
+	}
+	if !strings.Contains(pusher.bodies[2], `name="sk_hynix"`) {
+		t.Error("장 시작에 다시 읽은 목록이 반영되지 않았다")
+	}
+}
+
+// 장 시작 때 다시 읽기가 실패하면 이전 목록으로 수집하고, 다음 주기에 다시 시도한다.
+func TestSymbolsReloadRetriesAfterFailure(t *testing.T) {
+	quotes := &fakeQuotes{quotes: map[string]kis.Quote{
+		"005930": fullQuote("005930", 71000),
+		"000660": fullQuote("000660", 180000),
+	}}
+	pusher := &fakePusher{}
+	symbols := &fakeSymbols{symbols: []config.Symbol{samsung}}
+	gate := &fakeGate{ok: true}
+	c := New(symbols, time.Minute, quotes, pusher, gate, discardLogger())
+
+	c.tick(context.Background())
+	gate.ok = false
+	c.tick(context.Background())
+	gate.ok = true
+	symbols.err = errors.New("MongoDB 연결 끊김")
+	c.tick(context.Background()) // 장 시작, 읽기 실패 → 이전 목록
+	symbols.err = nil
+	symbols.symbols = []config.Symbol{samsung, hynix}
+	c.tick(context.Background()) // 재시도 성공
+
+	if symbols.calls != 3 {
+		t.Errorf("종목 목록 조회 횟수 = %d, want 3", symbols.calls)
+	}
+	if len(pusher.bodies) != 3 {
+		t.Fatalf("push 횟수 = %d, want 3", len(pusher.bodies))
+	}
+	if !strings.Contains(pusher.bodies[1], `name="samsung_electronics"`) {
+		t.Error("읽기 실패 시 이전 목록으로 수집하지 않았다")
+	}
+	if !strings.Contains(pusher.bodies[2], `name="sk_hynix"`) {
+		t.Error("재시도로 읽은 목록이 반영되지 않았다")
+	}
+}
+
+// 장외 시간에 시작해도 시작 시점에 목록을 읽는다.
+func TestRunLoadsSymbolsAtStartOutsideHours(t *testing.T) {
+	symbols := &fakeSymbols{symbols: []config.Symbol{samsung}}
+	c := New(symbols, time.Hour, &fakeQuotes{}, &fakePusher{}, &fakeGate{ok: false}, discardLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := c.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+
+	if symbols.calls != 1 {
+		t.Errorf("종목 목록 조회 횟수 = %d, want 1", symbols.calls)
+	}
+	if len(c.lastSymbols) != 1 {
+		t.Errorf("읽은 종목 수 = %d, want 1", len(c.lastSymbols))
+	}
+}
+
+// 종목 목록이 비어 있고 이전 목록도 없으면 KIS를 호출하지 않는다.
+func TestTickSkipsWhenNoSymbols(t *testing.T) {
+	quotes := &fakeQuotes{}
+	pusher := &fakePusher{}
+	c := New(&fakeSymbols{err: errors.New("조회 실패")}, time.Minute, quotes, pusher, &fakeGate{ok: true}, discardLogger())
+
+	c.tick(context.Background())
+
+	if len(quotes.calls) != 0 || len(pusher.bodies) != 0 {
+		t.Errorf("시세 조회 %d회, push %d회; want 0, 0", len(quotes.calls), len(pusher.bodies))
+	}
+}
+
 // 값이 없는 필드는 0으로 push하지 않고 제외한다.
 func TestQuoteSamplesSkipsMissingFields(t *testing.T) {
 	q := kis.Quote{
@@ -219,7 +334,7 @@ func TestCollectStopsOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if got := c.collect(ctx); len(got) != 0 {
+	if got := c.collect(ctx, []config.Symbol{samsung, hynix}); len(got) != 0 {
 		t.Errorf("샘플 수 = %d, want 0", len(got))
 	}
 	if len(quotes.calls) != 0 {
@@ -231,7 +346,7 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 	quotes := &fakeQuotes{quotes: map[string]kis.Quote{"005930": fullQuote("005930", 71000)}}
 	// interval을 1시간으로 두어, push가 일어난다면 그것은 시작 직후 1회뿐이다.
 	pusher := &fakePusher{signal: make(chan struct{}, 1)}
-	c := New([]config.Symbol{samsung}, time.Hour, quotes, pusher, &fakeGate{ok: true}, discardLogger())
+	c := New(&fakeSymbols{symbols: []config.Symbol{samsung}}, time.Hour, quotes, pusher, &fakeGate{ok: true}, discardLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -22,6 +22,7 @@ type Config struct {
 	Market  Market  `yaml:"market"`
 	Collect Collect `yaml:"collect"`
 	Log     Log     `yaml:"log"`
+	Mongo   Mongo   `yaml:"mongo"`
 }
 
 // KIS는 한국투자증권 Open API 접속 정보다.
@@ -53,10 +54,19 @@ type Market struct {
 	Close string `yaml:"close"`
 }
 
-// Collect는 수집 주기와 대상 종목이다.
+// Collect는 수집 주기다. 수집 대상 종목은 MongoDB corporation 컬렉션에서 읽는다.
 type Collect struct {
 	Interval time.Duration `yaml:"interval"`
-	Symbols  []Symbol      `yaml:"symbols"`
+}
+
+// Mongo는 수집 대상 종목을 읽어 올 MongoDB 접속 정보다.
+type Mongo struct {
+	// URI는 MongoDB 연결 URI다. 예: mongodb://localhost:27017
+	URI      string `yaml:"uri"`
+	Database string `yaml:"database"`
+	// Username/Password가 있으면 URI의 인증 정보 대신 쓴다.
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 // Symbol은 수집 대상 종목 하나다. Name은 metric label로 그대로 쓰이므로
@@ -136,16 +146,14 @@ func (c *Config) validate() error {
 	if (c.Push.Username == "") != (c.Push.Password == "") {
 		return fmt.Errorf("push.username 과 push.password 는 함께 설정해야 한다")
 	}
-	if len(c.Collect.Symbols) == 0 {
-		return fmt.Errorf("collect.symbols 가 비어 있다")
+	if c.Mongo.URI == "" {
+		return fmt.Errorf("mongo.uri 가 비어 있다")
 	}
-	for i, s := range c.Collect.Symbols {
-		if s.Code == "" {
-			return fmt.Errorf("collect.symbols[%d].code 가 비어 있다", i)
-		}
-		if s.Name == "" {
-			return fmt.Errorf("collect.symbols[%d].name 가 비어 있다 (종목 %s)", i, s.Code)
-		}
+	if c.Mongo.Database == "" {
+		return fmt.Errorf("mongo.database 가 비어 있다")
+	}
+	if (c.Mongo.Username == "") != (c.Mongo.Password == "") {
+		return fmt.Errorf("mongo.username 과 mongo.password 는 함께 설정해야 한다")
 	}
 	return nil
 }

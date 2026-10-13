@@ -32,11 +32,11 @@ market:
   close: "15:30"
 collect:
   interval: 45s
-  symbols:
-    - code: "005930"
-      name: "samsung_electronics"
-    - code: "000660"
-      name: "sk_hynix"
+mongo:
+  uri: "mongodb://mongo.test:27017"
+  database: "stock"
+  username: "user"
+  password: "pass"
 `
 
 func TestLoadFullConfig(t *testing.T) {
@@ -58,11 +58,9 @@ func TestLoadFullConfig(t *testing.T) {
 	if cfg.Push.Timeout != 7*time.Second {
 		t.Errorf("push.timeout = %v, want 7s", cfg.Push.Timeout)
 	}
-	if len(cfg.Collect.Symbols) != 2 {
-		t.Fatalf("symbols 개수 = %d, want 2", len(cfg.Collect.Symbols))
-	}
-	if cfg.Collect.Symbols[0].Code != "005930" || cfg.Collect.Symbols[0].Name != "samsung_electronics" {
-		t.Errorf("symbols[0] = %+v", cfg.Collect.Symbols[0])
+	want := Mongo{URI: "mongodb://mongo.test:27017", Database: "stock", Username: "user", Password: "pass"}
+	if cfg.Mongo != want {
+		t.Errorf("mongo = %+v, want %+v", cfg.Mongo, want)
 	}
 }
 
@@ -73,10 +71,9 @@ kis:
   app_secret: "secret"
 push:
   import_url: "http://vm.test/api/v1/import/prometheus"
-collect:
-  symbols:
-    - code: "005930"
-      name: "samsung_electronics"
+mongo:
+  uri: "mongodb://localhost:27017"
+  database: "stock"
 `))
 	if err != nil {
 		t.Fatalf("Load 실패: %v", err)
@@ -107,28 +104,33 @@ func TestLoadValidationErrors(t *testing.T) {
 	}{
 		{
 			name: "app_key 누락",
-			body: "kis:\n  app_secret: s\npush:\n  import_url: u\ncollect:\n  symbols:\n    - code: c\n      name: n\n",
+			body: "kis:\n  app_secret: s\npush:\n  import_url: u\nmongo:\n  uri: m\n  database: d\n",
 			want: "kis.app_key",
 		},
 		{
 			name: "import_url 누락",
-			body: "kis:\n  app_key: k\n  app_secret: s\ncollect:\n  symbols:\n    - code: c\n      name: n\n",
+			body: "kis:\n  app_key: k\n  app_secret: s\nmongo:\n  uri: m\n  database: d\n",
 			want: "push.import_url",
 		},
 		{
 			name: "push password 누락",
-			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\n  username: vm\ncollect:\n  symbols:\n    - code: c\n      name: n\n",
+			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\n  username: vm\nmongo:\n  uri: m\n  database: d\n",
 			want: "push.password",
 		},
 		{
-			name: "종목 없음",
-			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\n",
-			want: "collect.symbols",
+			name: "mongo uri 누락",
+			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\nmongo:\n  database: d\n",
+			want: "mongo.uri",
 		},
 		{
-			name: "종목 name 누락",
-			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\ncollect:\n  symbols:\n    - code: \"005930\"\n",
-			want: "name",
+			name: "mongo database 누락",
+			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\nmongo:\n  uri: m\n",
+			want: "mongo.database",
+		},
+		{
+			name: "mongo password 누락",
+			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\nmongo:\n  uri: m\n  database: d\n  username: user\n",
+			want: "mongo.password",
 		},
 	}
 
@@ -174,8 +176,8 @@ func TestLoadHandlesWindowsEncodings(t *testing.T) {
 			if cfg.Collect.Interval != 45*time.Second {
 				t.Errorf("interval = %v, want 45s", cfg.Collect.Interval)
 			}
-			if len(cfg.Collect.Symbols) != 2 {
-				t.Errorf("symbols 개수 = %d, want 2", len(cfg.Collect.Symbols))
+			if cfg.Mongo.Database != "stock" {
+				t.Errorf("mongo.database = %q, want %q", cfg.Mongo.Database, "stock")
 			}
 		})
 	}
