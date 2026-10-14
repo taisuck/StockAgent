@@ -13,13 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taisuck/StockAgent/internal/collector"
-	"github.com/taisuck/StockAgent/internal/config"
-	"github.com/taisuck/StockAgent/internal/kis"
-	"github.com/taisuck/StockAgent/internal/logging"
-	"github.com/taisuck/StockAgent/internal/market"
-	"github.com/taisuck/StockAgent/internal/mongodb"
-	"github.com/taisuck/StockAgent/internal/vmpush"
+	"github.com/taisuck/StockAgent/src/backend"
+	"github.com/taisuck/StockAgent/src/collector"
+	"github.com/taisuck/StockAgent/src/config"
+	"github.com/taisuck/StockAgent/src/kis"
+	"github.com/taisuck/StockAgent/src/logging"
+	"github.com/taisuck/StockAgent/src/market"
+	"github.com/taisuck/StockAgent/src/vmpush"
 )
 
 func main() {
@@ -83,22 +83,17 @@ func run(configPath, logLevel string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 접속·인증 설정이 잘못됐다면 수집 루프를 돌기 전에 드러나도록 시작 시점에 확인한다.
-	store, err := mongodb.Connect(ctx, cfg.Mongo, log)
-	if err != nil {
-		return err
-	}
-	defer store.Close(context.Background())
+	stocks := backend.New(cfg.Backend.URL, cfg.Backend.Timeout, log)
 
 	log.Info("StockAgent 시작",
-		"mongo_db", cfg.Mongo.Database,
+		"backend", cfg.Backend.URL,
 		"interval", cfg.Collect.Interval,
 		"session", cfg.Market.Open+"~"+cfg.Market.Close+" KST",
 		"push", cfg.Push.ImportURL,
 		"push_auth", cfg.Push.Username != "",
 	)
 
-	c := collector.New(store, cfg.Collect.Interval, kisClient, pusher, gate, log)
+	c := collector.New(stocks, cfg.Collect.Interval, kisClient, pusher, gate, log)
 	if err := c.Run(ctx); err != nil {
 		return err
 	}

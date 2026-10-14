@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/taisuck/StockAgent/internal/config"
-	"github.com/taisuck/StockAgent/internal/kis"
-	"github.com/taisuck/StockAgent/internal/metric"
+	"github.com/taisuck/StockAgent/src/config"
+	"github.com/taisuck/StockAgent/src/kis"
+	"github.com/taisuck/StockAgent/src/metric"
 )
 
 // metric 이름. 한 번 push하면 시계열 이름이 굳으므로 바꾸지 않는다.

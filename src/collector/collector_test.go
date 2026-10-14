@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taisuck/StockAgent/internal/config"
-	"github.com/taisuck/StockAgent/internal/kis"
+	"github.com/taisuck/StockAgent/src/config"
+	"github.com/taisuck/StockAgent/src/kis"
 )
 
 func discardLogger() *slog.Logger {
@@ -250,7 +250,7 @@ func TestSymbolsReloadRetriesAfterFailure(t *testing.T) {
 	gate.ok = false
 	c.tick(context.Background())
 	gate.ok = true
-	symbols.err = errors.New("MongoDB 연결 끊김")
+	symbols.err = errors.New("백엔드 연결 끊김")
 	c.tick(context.Background()) // 장 시작, 읽기 실패 → 이전 목록
 	symbols.err = nil
 	symbols.symbols = []config.Symbol{samsung, hynix}

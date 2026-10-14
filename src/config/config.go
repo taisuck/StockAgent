@@ -22,7 +22,7 @@ type Config struct {
 	Market  Market  `yaml:"market"`
 	Collect Collect `yaml:"collect"`
 	Log     Log     `yaml:"log"`
-	Mongo   Mongo   `yaml:"mongo"`
+	Backend Backend `yaml:"backend"`
 }
 
 // KIS는 한국투자증권 Open API 접속 정보다.
@@ -54,19 +54,16 @@ type Market struct {
 	Close string `yaml:"close"`
 }
 
-// Collect는 수집 주기다. 수집 대상 종목은 MongoDB corporation 컬렉션에서 읽는다.
+// Collect는 수집 주기다. 수집 대상 종목은 백엔드 stock list API에서 읽는다.
 type Collect struct {
 	Interval time.Duration `yaml:"interval"`
 }
 
-// Mongo는 수집 대상 종목을 읽어 올 MongoDB 접속 정보다.
-type Mongo struct {
-	// URI는 MongoDB 연결 URI다. 예: mongodb://localhost:27017
-	URI      string `yaml:"uri"`
-	Database string `yaml:"database"`
-	// Username/Password가 있으면 URI의 인증 정보 대신 쓴다.
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+// Backend는 수집 대상 종목 목록(GET /stock)을 제공하는 백엔드 서버다.
+type Backend struct {
+	// URL은 백엔드 주소다. 예: http://localhost:8080
+	URL     string        `yaml:"url"`
+	Timeout time.Duration `yaml:"timeout"`
 }
 
 // Symbol은 수집 대상 종목 하나다. Name은 metric label로 그대로 쓰이므로
@@ -116,6 +113,9 @@ func (c *Config) applyDefaults() {
 	if c.Push.Timeout <= 0 {
 		c.Push.Timeout = 10 * time.Second
 	}
+	if c.Backend.Timeout <= 0 {
+		c.Backend.Timeout = 10 * time.Second
+	}
 	if c.Market.Open == "" {
 		c.Market.Open = "09:00"
 	}
@@ -146,14 +146,8 @@ func (c *Config) validate() error {
 	if (c.Push.Username == "") != (c.Push.Password == "") {
 		return fmt.Errorf("push.username 과 push.password 는 함께 설정해야 한다")
 	}
-	if c.Mongo.URI == "" {
-		return fmt.Errorf("mongo.uri 가 비어 있다")
-	}
-	if c.Mongo.Database == "" {
-		return fmt.Errorf("mongo.database 가 비어 있다")
-	}
-	if (c.Mongo.Username == "") != (c.Mongo.Password == "") {
-		return fmt.Errorf("mongo.username 과 mongo.password 는 함께 설정해야 한다")
+	if c.Backend.URL == "" {
+		return fmt.Errorf("backend.url 이 비어 있다")
 	}
 	return nil
 }
