@@ -3,5 +3,5 @@
 set -eu
 cd "$(dirname "$0")/.."
 mkdir -p output
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o output/stockagent ./src/stockagent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o output/stockagent ./src
 echo "built: output/stockagent"

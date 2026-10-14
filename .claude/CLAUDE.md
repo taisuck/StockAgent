@@ -9,18 +9,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 모듈 및 구조
 
 - 모듈 경로: `github.com/taisuck/StockAgent` (저장소 루트에 단일 모듈)
-- 실행 바이너리는 `src/<name>` 에, 공용 패키지는 `internal/` 에 둔다.
+- 개발 문서 경로 : `https://app.notion.com/p/taisuck/3f85839e81d7803b8d9be9c01bc94f32?v=3f85839e81d780509e95000c3c1427ed`
+- 실행 바이너리(main)는 `src/` 에, 공용 패키지는 `src/<pkg>` 하위에 둔다.
 
 ```
-src/stockagent      수집 루프를 구성해 실행하는 main
-internal/config     YAML 설정 로드/검증
-internal/kis        KIS API 클라이언트 (토큰, 시세, 휴장일)
-internal/market     KST 장 운영 여부 판단 (Clock, HolidayCache, Gate)
-internal/metric     Prometheus exposition 포맷 변환
-internal/vmpush     VictoriaMetrics push
-internal/logging    로그 레벨 파싱, KST 날짜별 로그 파일
-internal/mongodb    MongoDB 연결, corporation 컬렉션에서 수집 대상 종목 조회
-internal/collector  수집 → 변환 → push 루프
+src                 수집 루프를 구성해 실행하는 main
+src/config          YAML 설정 로드/검증
+src/kis             KIS API 클라이언트 (토큰, 시세, 휴장일)
+src/market          KST 장 운영 여부 판단 (Clock, HolidayCache, Gate)
+src/metric          Prometheus exposition 포맷 변환
+src/vmpush          VictoriaMetrics push
+src/logging         로그 레벨 파싱, KST 날짜별 로그 파일
+src/backend         백엔드 stock list API(GET /stock)에서 수집 대상 종목 조회
+src/collector       수집 → 변환 → push 루프
 ```
 
 의존 방향은 `collector` → (`kis`, `metric`, `config`) 한 방향이다. `collector`는 구체 타입 대신
@@ -30,7 +31,7 @@ internal/collector  수집 → 변환 → push 루프
 
 ```sh
 go build ./...             # 전체 빌드
-go run ./src/stockagent -config config.yml -log-level debug
+go run ./src -config config.yml -log-level debug
 go vet ./...               # 정적 분석
 gofmt -l .                 # 포맷되지 않은 파일 목록 (출력이 비어 있으면 정상)
 gofmt -w .                 # 제자리에서 포맷 적용
@@ -42,8 +43,8 @@ go test -run '^TestName$' ./path/to/pkg   # 단일 테스트 실행
 크로스 빌드(어느 OS에서든 상대 OS용 바이너리를 만들 수 있다. cgo를 쓰지 않는다):
 
 ```sh
-GOOS=linux   GOARCH=amd64 go build -o dist/stockagent     ./src/stockagent
-GOOS=windows GOARCH=amd64 go build -o dist/stockagent.exe ./src/stockagent
+GOOS=linux   GOARCH=amd64 go build -o dist/stockagent     ./src
+GOOS=windows GOARCH=amd64 go build -o dist/stockagent.exe ./src
 GOOS=linux go vet ./...    # 상대 OS 기준 정적 분석
 ```
 
@@ -67,13 +68,13 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
 ### 시세 수집 (한국투자증권 KIS Open API)
 
 - 국내 주식 시세는 한국투자증권 REST API로 수집한다.
-- 수집 대상: MongoDB `mongo.database` 의 `corporation` 컬렉션 문서(`code`, `name` 필드).
+- 수집 대상: 백엔드 `backend.url` 의 stock list API(`GET /stock`) 응답 항목(`code`, `name` 필드).
+  - API 스펙은 개발 문서의 "FE ↔ BE protocol 문서"를 따른다. MongoDB에 직접 연결하지 않는다.
   - 목록은 프로그램 시작 시(장외여도)와 매일 장 시작 시(장외 → 장중으로 바뀐 첫 주기)에만 다시 읽는다.
     장 중에 바꾼 목록은 다음 장 시작부터 반영된다. 읽을 때마다 몇 종목인지 INFO 로그로 남긴다.
   - 다시 읽기가 실패하면 마지막으로 읽은 목록으로 수집하고, 성공할 때까지 다음 주기에 다시 시도한다.
-    code나 name이 빈 문서는 건너뛴다.
-  - MongoDB 접속·인증은 시작 시 ping으로 확인하고, 실패하면 시작하지 않는다.
-  - `mongo.username`/`mongo.password` 가 있으면 URI의 인증 정보 대신 쓴다(authSource 등 URI 옵션은 유지).
+    code나 name이 빈 항목은 건너뛴다.
+  - 시작 시 백엔드에 연결되지 않아도 종료하지 않고, 위 재시도 규칙대로 다음 주기에 다시 읽는다.
 - 인증은 `appkey`/`appsecret`으로 access token을 발급받아 `Bearer` 헤더로 사용한다.
   토큰 재발급에는 호출 제한이 있으므로 **발급한 토큰은 만료 전까지 캐싱해 재사용**한다.
 - 요청마다 조회 종류를 지정하는 `tr_id` 헤더가 필요하고, 실전투자와 모의투자는 도메인이 다르다.
@@ -86,7 +87,7 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
 - push 대상(VictoriaMetrics 주소)은 config 파일에 명시한다.
 - `push.username` / `push.password` 가 있으면 HTTP Basic 인증을 붙인다(VictoriaMetrics `-httpAuth.*`).
   둘 다 비우면 인증 없이 보내고, 하나만 있으면 설정 오류로 시작하지 않는다.
-- metric 이름과 label은 `internal/collector` 의 상수로 고정돼 있다. **한 번 push하면 시계열 이름이
+- metric 이름과 label은 `src/collector` 의 상수로 고정돼 있다. **한 번 push하면 시계열 이름이
   굳으므로 바꾸지 않는다.**
 
   ```
@@ -128,7 +129,7 @@ Prometheus exporter처럼 scrape를 기다리는 방식이 아니라, agent가 �
 
 ### 설정 파일
 
-- 형식은 YAML. 인증 정보(appkey/appsecret), push 대상, MongoDB 접속 정보를 여기에 둔다.
+- 형식은 YAML. 인증 정보(appkey/appsecret), push 대상, 백엔드 주소를 여기에 둔다.
 - 실제 키가 담기는 파일이므로 저장소에 커밋하지 않는다. `config.example.yml` 만 두고
   `config.yml` 과 토큰 캐시(`.token_cache.json`)는 `.gitignore` 처리한다.
 - 발급한 access token은 `kis.token_cache_path` 파일에 보관해 재시작 후에도 재사용한다.

@@ -32,11 +32,9 @@ market:
   close: "15:30"
 collect:
   interval: 45s
-mongo:
-  uri: "mongodb://mongo.test:27017"
-  database: "stock"
-  username: "user"
-  password: "pass"
+backend:
+  url: "http://backend.test:8080"
+  timeout: 5s
 `
 
 func TestLoadFullConfig(t *testing.T) {
@@ -58,9 +56,9 @@ func TestLoadFullConfig(t *testing.T) {
 	if cfg.Push.Timeout != 7*time.Second {
 		t.Errorf("push.timeout = %v, want 7s", cfg.Push.Timeout)
 	}
-	want := Mongo{URI: "mongodb://mongo.test:27017", Database: "stock", Username: "user", Password: "pass"}
-	if cfg.Mongo != want {
-		t.Errorf("mongo = %+v, want %+v", cfg.Mongo, want)
+	want := Backend{URL: "http://backend.test:8080", Timeout: 5 * time.Second}
+	if cfg.Backend != want {
+		t.Errorf("backend = %+v, want %+v", cfg.Backend, want)
 	}
 }
 
@@ -71,9 +69,8 @@ kis:
   app_secret: "secret"
 push:
   import_url: "http://vm.test/api/v1/import/prometheus"
-mongo:
-  uri: "mongodb://localhost:27017"
-  database: "stock"
+backend:
+  url: "http://localhost:8080"
 `))
 	if err != nil {
 		t.Fatalf("Load 실패: %v", err)
@@ -91,6 +88,9 @@ mongo:
 	if cfg.KIS.TokenCachePath == "" {
 		t.Error("token_cache_path 기본값이 비어 있다")
 	}
+	if cfg.Backend.Timeout != 10*time.Second {
+		t.Errorf("backend.timeout 기본값 = %v, want 10s", cfg.Backend.Timeout)
+	}
 	if cfg.Log.Level != "info" || cfg.Log.Dir != "logs" {
 		t.Errorf("log 기본값 = level %q, dir %q", cfg.Log.Level, cfg.Log.Dir)
 	}
@@ -104,33 +104,23 @@ func TestLoadValidationErrors(t *testing.T) {
 	}{
 		{
 			name: "app_key 누락",
-			body: "kis:\n  app_secret: s\npush:\n  import_url: u\nmongo:\n  uri: m\n  database: d\n",
+			body: "kis:\n  app_secret: s\npush:\n  import_url: u\nbackend:\n  url: b\n",
 			want: "kis.app_key",
 		},
 		{
 			name: "import_url 누락",
-			body: "kis:\n  app_key: k\n  app_secret: s\nmongo:\n  uri: m\n  database: d\n",
+			body: "kis:\n  app_key: k\n  app_secret: s\nbackend:\n  url: b\n",
 			want: "push.import_url",
 		},
 		{
 			name: "push password 누락",
-			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\n  username: vm\nmongo:\n  uri: m\n  database: d\n",
+			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\n  username: vm\nbackend:\n  url: b\n",
 			want: "push.password",
 		},
 		{
-			name: "mongo uri 누락",
-			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\nmongo:\n  database: d\n",
-			want: "mongo.uri",
-		},
-		{
-			name: "mongo database 누락",
-			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\nmongo:\n  uri: m\n",
-			want: "mongo.database",
-		},
-		{
-			name: "mongo password 누락",
-			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\nmongo:\n  uri: m\n  database: d\n  username: user\n",
-			want: "mongo.password",
+			name: "backend url 누락",
+			body: "kis:\n  app_key: k\n  app_secret: s\npush:\n  import_url: u\n",
+			want: "backend.url",
 		},
 	}
 
@@ -176,8 +166,8 @@ func TestLoadHandlesWindowsEncodings(t *testing.T) {
 			if cfg.Collect.Interval != 45*time.Second {
 				t.Errorf("interval = %v, want 45s", cfg.Collect.Interval)
 			}
-			if cfg.Mongo.Database != "stock" {
-				t.Errorf("mongo.database = %q, want %q", cfg.Mongo.Database, "stock")
+			if cfg.Backend.URL != "http://backend.test:8080" {
+				t.Errorf("backend.url = %q, want %q", cfg.Backend.URL, "http://backend.test:8080")
 			}
 		})
 	}
